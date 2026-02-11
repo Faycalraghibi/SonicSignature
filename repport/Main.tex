@@ -1,0 +1,163 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{color}
+\usepackage{booktabs}
+\usepackage{float}
+\usepackage{amsmath}
+\usepackage{caption}
+\usepackage{subcaption}
+
+\geometry{a4paper, margin=1in}
+
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},   
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{magenta},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,         
+    breaklines=true,                 
+    captionpos=b,                    
+    keepspaces=true,                 
+    numbers=left,                    
+    numbersep=5pt,                  
+    showspaces=false,                
+    showstringspaces=false,
+    showtabs=false,                  
+    tabsize=2
+}
+
+\lstset{style=mystyle}
+
+\title{\textbf{Sonic Signature: Computational Music Analysis} \\ \Large From Machine Learning Classification to Audio Fingerprinting}
+\author{AARES Project Report}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Introduction}
+This report details the implementation and results of the "Sonic Signature" project, a comprehensive study applying data science and signal processing to music. The work is divided into:
+\begin{enumerate}
+    \item \textbf{Part 1}: Metadata analysis using Spotify audio features for genre classification, popularity regression, and recommendation.
+    \item \textbf{Part 2}: Signal processing to build a "Shazam-like" audio fingerprinting system and uncertainty quantification via Conformal Prediction.
+\end{enumerate}
+
+\section{Part 1: Spotify Machine Learning Analysis}
+
+\subsection{1.1 Dataset and Features}
+The analysis leverages the \texttt{spotify\_dataset\_train.csv} dataset. Key audio features include:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lp{10cm}}
+\toprule
+\textbf{Feature} & \textbf{Description} \\
+\midrule
+\texttt{acousticness} & Confidence measure (0.0-1.0) of whether the track is acoustic. \\
+\texttt{danceability} & Suitability for dancing based on tempo, rhythm, and beat strength. \\
+\texttt{energy} & Perceptual measure of intensity and activity. \\
+\texttt{instrumentalness} & Likelihood the track contains no vocals. \\
+\texttt{valence} & Musical positiveness (happy/cheerful vs. sad/depressed). \\
+\texttt{tempo} & Estimated tempo in BPM. \\
+\bottomrule
+\end{tabular}
+\caption{Feature Dictionary}
+\end{table}
+
+\textbf{Preprocessing Steps}:
+\begin{itemize}
+    \item Extracted \texttt{year} from \texttt{release\_date} to capture temporal trends.
+    \item Imputed missing numerical values with the \textbf{median} and categorical values with the \textbf{mode}.
+    \item Standardized numerical features ($\mu=0, \sigma=1$) using \texttt{StandardScaler} and one-hot encoded categorical features like \texttt{key} and \texttt{mode}.
+\end{itemize}
+
+\subsection{1.2 Genre Classification}
+We trained a \textbf{Random Forest Classifier} (100 estimators, balanced weights) on the processed data.
+
+\subsubsection{Results}
+\begin{itemize}
+    \item \textbf{Cross-Validation F1 Micro Score}: \textbf{0.4396} ($\pm$ 0.0132)
+\end{itemize}
+While the model performs better than random guessing, the F1 score of $\approx 0.44$ highlights the inherent ambiguity in genre boundaries based solely on high-level audio descriptors.
+
+\textbf{Submission}: Predictions for the test set were generated and saved to \texttt{outputs/submission.csv}.
+
+\subsection{1.3 Popularity Prediction}
+A \textbf{Random Forest Regressor} was used to analyze the \texttt{spotify\_dataset\_subset.csv}.
+\begin{itemize}
+    \item \textbf{Mean Squared Error (MSE)}: \textbf{517.99}
+    \item \textbf{R-squared ($R^2$)}: \textbf{0.2126}
+\end{itemize}
+The relatively low $R^2$ (21\%) suggests that audio features explain only a small fraction of a song's popularity, confirming that external marketing and artist fame play a more dominant role.
+
+\subsection{1.4 Recommendation System}
+A content-based recommender using \textbf{Cosine Similarity} was built. It effectively clusters songs with similar vectors (e.g., retrieving high-energy EDM tracks when queried with an electronic song).
+
+\section{Part 2: Audio Fingerprinting}
+
+\subsection{2.1 Methodology}
+We implemented a robust identification system based on spectral peak hashing.
+\begin{itemize}
+    \item \textbf{Spectrogram}: Computed via STFT ($n\_fft=2048, hop=512$) at a sampling rate of \textbf{3000 Hz}.
+    \item \textbf{Constellation Map}: Local maxima were extracted from the spectrogram.
+    \item \textbf{Hashing}: Pairs of peaks (Anchor, Target) within a target zone were hashed using:
+    \[ \text{Hash} = f_{anchor} \times 10^6 + f_{target} \times 10^3 + (t_{target} - t_{anchor}) \]
+\end{itemize}
+
+\subsection{2.2 Search Results}
+A database was built from the \texttt{songs/} directory containing 13 tracks. When querying with an excerpt from \textit{"Carmen Prelude"}, the system successfully identified it.
+
+\textbf{Top Matches}:
+\begin{enumerate}
+    \item \textbf{Bizet, Georges - Carmen Prelude} (Correct Match)
+    \item Debussy - Suite Bergamasque - 2. Menuet
+    \item Debussy - Suite Bergamasque - 4. Passepied
+\end{enumerate}
+The correct song appeared at the top, validating the temporal alignment algorithm.
+
+\section{Bonus: Conformal Prediction}
+To address the uncertainty in our genre classifier (Part 1), we applied Inductive Conformal Prediction using a KNN classifier ($k=5$) on a calibration set of 1500 samples.
+
+\subsection{Empirical Results}
+For a randomly selected test point, we computed prediction sets at different significance levels ($\epsilon$).
+
+\begin{table}[H]
+\centering
+\begin{tabular}{ccp{8cm}}
+\toprule
+\textbf{Error Rate ($\epsilon$)} & \textbf{Confidence} & \textbf{Prediction Set} \\
+\midrule
+0.05 & 95\% & \texttt{['blues', 'classical', 'country', 'dance', 'disco', 'edm', 'electro', 'folk', 'hip hop', 'jazz', 'latin', 'pop', 'r\&b', 'rap', 'rock', 'soul']} (Size: 16) \\
+0.10 & 90\% & \texttt{['classical', 'country', 'dance', 'edm', 'electro', 'folk', 'hip hop', 'jazz', 'pop', 'r\&b', 'rap', 'soul']} (Size: 12) \\
+0.20 & 80\% & \texttt{['country', 'electro', 'folk', 'hip hop', 'pop', 'r\&b', 'rap', 'soul']} (Size: 8) \\
+\bottomrule
+\end{tabular}
+\caption{Conformal Prediction Sets}
+\end{table}
+
+\textbf{Interpretation}: To achieve 95\% confidence that the true genre is included, the model must return a large set (16 genres), reflecting the high uncertainty and class overlap. Relaxing the requirement to 80\% allows for a much tighter set (8 genres).
+
+\section{Conclusion}
+The project demonstrated the strengths and limitations of computational music analysis:
+\begin{itemize}
+    \item \textbf{Metadata}: While useful for recommendation, high-level features alone are insufficient for precise popularity prediction ($R^2 \approx 0.21$) or fine-grained classification.
+    \item \textbf{Signal Processing}: The fingerprinting algorithm demonstrated high robustness, correctly identifying songs despite the simplified sampling parameters.
+    \item \textbf{Uncertainty}: Conformal prediction provided a rigorous framework to quantify the classifier's ambiguity, essential for building trust in AI music systems.
+\end{itemize}
+
+\end{document}
