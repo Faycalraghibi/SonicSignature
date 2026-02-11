@@ -1,0 +1,23 @@
+[project]
+name = "sonic_signature"
+version = "0.1.0"
+description = "Spotify Genre Classification and Audio Fingerprinting Project"
+authors = [
+    {name = "User", email = "user@example.com"},
+]
+dependencies = [
+    "numpy",
+    "pandas",
+    "scikit-learn",
+    "matplotlib",
+    "seaborn",
+    "librosa",
+    "numba",
+    "scipy",
+    "soundfile",
+]
+requires-python = ">=3.9"
+
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
