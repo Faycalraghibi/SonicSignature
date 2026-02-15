@@ -1,11 +1,10 @@
 import sys
 import os
 
-# Ensure src module is in path
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
 def main():
-    print("=== Part 1: Classification, Analysis & Recommendation ===")
+    print("Part 1: Classification, Analysis & Recommendation")
     
     # Classification
     from src.classification import load_data, preprocess_data, train_model, generate_predictions
