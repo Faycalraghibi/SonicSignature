@@ -1,0 +1,427 @@
+% ==============================================================================
+% Faycal Raghibi, Guerouaoui Ilyas — Rapport Bonus : Prédiction Conforme
+% IMT Nord Europe — IC2 S2.1 Projet Machine Learning
+% ==============================================================================
+\documentclass[11pt,a4paper]{article}
+
+% ── Packages ──────────────────────────────────────────────────────────────────
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage{geometry}
+\geometry{margin=2.5cm}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{parskip}
+
+\usepackage{xcolor}
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!70!black,
+  citecolor=blue!70!black,
+  urlcolor=blue!70!black
+}
+
+% ── Titre ─────────────────────────────────────────────────────────────────────
+\title{%
+  \textbf{Analyse Musicale Spotify}\\[4pt]
+  \large Classification des Genres, Prédiction de Popularité \& Recommandation\\[4pt]
+}
+\author{Faycal Raghibi, Guerouaoui Ilyas}
+\date{Février 2026}
+
+\begin{document}
+\maketitle
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Introduction}
+% ══════════════════════════════════════════════════════════════════════════════
+
+Les plateformes de streaming musical telles que Spotify hébergent des millions
+de titres couvrant une grande variété de genres.  La classification automatique
+des genres, la prédiction de popularité et la recommandation basée sur le
+contenu sont des tâches fondamentales qui améliorent l'expérience utilisateur
+et la curation de la plateforme.  Ce rapport présente la méthodologie et les
+résultats d'un pipeline d'apprentissage automatique construit autour d'un jeu
+de données Spotify contenant des descripteurs audio numériques extraits de
+l'API Web Spotify.
+
+Le projet aborde trois objectifs interconnectés :
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Classification des genres} — attribuer l'une des étiquettes de
+        genre à chaque morceau en fonction de ses caractéristiques audio.
+  \item \textbf{Prédiction de popularité} — estimer le score continu de
+        popularité d'un morceau par régression.
+  \item \textbf{Recommandation basée sur le contenu} — suggérer des morceaux
+        similaires en mesurant la proximité dans l'espace des caractéristiques.
+\end{enumerate}
+
+Toutes les expériences ont été implémentées en Python à l'aide de Scikit-Learn,
+NumPy, Pandas, Matplotlib et Seaborn.  La suite de ce rapport est organisée
+comme suit : la Section~\ref{sec:data} décrit les jeux de données ; la
+Section~\ref{sec:preproc} détaille le pipeline de prétraitement ; les
+Sections~\ref{sec:classif} et~\ref{sec:pop} présentent respectivement les
+tâches de classification et de régression ; la Section~\ref{sec:reco}
+introduit l'approche de recommandation ; la Section~\ref{sec:bonus} décrit
+l'expérience bonus de prédiction conforme ; et la Section~\ref{sec:concl}
+conclut par une discussion.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Description des Données \& Analyse Exploratoire}
+\label{sec:data}
+% ══════════════════════════════════════════════════════════════════════════════
+
+\subsection{Jeux de Données Disponibles}
+
+Quatre fichiers CSV ont été fournis :
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Fichier} & \textbf{Lignes} & \textbf{Colonnes} & \textbf{Objectif} \\
+\midrule
+\texttt{spotify\_dataset\_train.csv}  & 25\,493 & 17 & Entraînement (incl.\ \texttt{genre}) \\
+\texttt{spotify\_dataset\_test.csv}   & 2\,834  & 16 & Test (sans étiquette \texttt{genre}) \\
+\texttt{spotify\_dataset\_subset.csv} & —       & —  & Sous-ensemble pour la régression de popularité \\
+\texttt{recommendation\_spotify.csv}  & —       & —  & Pool pour le système de recommandation \\
+\bottomrule
+\end{tabular}
+\caption{Aperçu des jeux de données du projet.}
+\label{tab:datasets}
+\end{table}
+
+\subsection{Dictionnaire des Caractéristiques}
+
+Chaque morceau est décrit par les caractéristiques listées dans le
+Tableau~\ref{tab:features}.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Caractéristique} & \textbf{Type} & \textbf{Description} \\
+\midrule
+\texttt{track\_id}        & chaîne  & Identifiant unique Spotify \\
+\texttt{track\_name}      & chaîne  & Nom du morceau \\
+\texttt{artists}          & chaîne  & Artiste(s) interprète(s) \\
+\texttt{release\_date}    & chaîne  & Date de sortie (année extraite) \\
+\texttt{acousticness}     & flottant & Mesure de confiance de la qualité acoustique \\
+\texttt{danceability}     & flottant & Aptitude à la danse \\
+\texttt{duration\_ms}     & entier   & Durée du morceau en millisecondes \\
+\texttt{energy}           & flottant & Mesure d'intensité perceptive \\
+\texttt{instrumentalness} & flottant & Probabilité que le morceau soit instrumental \\
+\texttt{key}              & entier   & Tonalité musicale (0–11, classe de hauteur) \\
+\texttt{liveness}         & flottant & Probabilité de performance en direct \\
+\texttt{loudness}         & flottant & Intensité sonore globale en dB \\
+\texttt{mode}             & entier   & Modalité (0 = mineur, 1 = majeur) \\
+\texttt{speechiness}      & flottant & Présence de paroles \\
+\texttt{tempo}            & flottant & BPM estimé \\
+\texttt{valence}          & flottant & Positivité musicale \\
+\texttt{popularity}       & entier   & Score de popularité (0–100) \\
+\texttt{explicit}         & entier   & Indicateur de contenu explicite \\
+\texttt{genre}            & chaîne  & Étiquette de genre (jeu d'entraînement uniquement) \\
+\bottomrule
+\end{tabular}
+\caption{Dictionnaire des caractéristiques des jeux de données Spotify.}
+\label{tab:features}
+\end{table}
+
+\subsection{Observations Exploratoires}
+
+Une exploration initiale du jeu d'entraînement a révélé plusieurs
+caractéristiques qui ont influencé la conception du pipeline :
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Déséquilibre des classes} — La distribution des genres est
+        très inégale.  Certains genres (par ex.\ \textit{pop}, \textit{rock})
+        dominent le jeu de données tandis que d'autres sont significativement
+        sous-représentés.  Cela a motivé l'utilisation de poids équilibrés
+        par classe dans le classificateur.
+  \item \textbf{Valeurs manquantes} — Une faible proportion d'entrées
+        contient des valeurs numériques manquantes, nécessitant une imputation.
+  \item \textbf{Échelles des caractéristiques} — Les caractéristiques couvrent
+        des plages très différentes (par ex.\ \texttt{duration\_ms}
+        $\sim10^5$ vs.\ \texttt{acousticness} $\in[0,1]$), rendant la
+        standardisation nécessaire.
+  \item \textbf{Dimensionnalité} — Une visualisation ACP des caractéristiques
+        standardisées a montré un chevauchement substantiel entre les genres
+        dans les deux premières composantes principales, laissant présager
+        une tâche de classification difficile.
+\end{itemize}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Pipeline de Prétraitement}
+\label{sec:preproc}
+% ══════════════════════════════════════════════════════════════════════════════
+
+Les étapes de prétraitement suivantes ont été appliquées de manière cohérente
+aux données d'entraînement et de test :
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Extraction de l'année.}  La colonne \texttt{release\_date} a
+        été analysée pour extraire une caractéristique numérique
+        \texttt{year}, fournissant un signal temporel compact.
+  \item \textbf{Sélection des colonnes.}  Les identifiants non prédictifs
+        (\texttt{track\_id}, \texttt{track\_name}, \texttt{artists}) et la
+        chaîne brute \texttt{release\_date} ont été supprimés.
+  \item \textbf{Imputation des valeurs manquantes.}  Les valeurs manquantes
+        restantes dans les colonnes numériques ont été remplies à l'aide de
+        \texttt{SimpleImputer} avec une stratégie par la \emph{moyenne}.
+  \item \textbf{Standardisation des caractéristiques.}  Toutes les
+        caractéristiques numériques ont été centrées et mises à l'échelle
+        à variance unitaire via \texttt{StandardScaler}, ajusté sur le jeu
+        d'entraînement et appliqué aux deux sous-ensembles.
+  \item \textbf{Encodage catégoriel.}  La caractéristique catégorielle binaire
+        \texttt{explicit} a été conservée telle quelle (déjà encodée en 0/1).
+        Un encodage one-hot a été appliqué si nécessaire pour tout signal
+        catégoriel supplémentaire.
+\end{enumerate}
+
+Après le prétraitement, la matrice de caractéristiques contenait les colonnes
+suivantes utilisées pour la modélisation : \texttt{acousticness},
+\texttt{danceability}, \texttt{duration\_ms}, \texttt{energy},
+\texttt{instrumentalness}, \texttt{key}, \texttt{liveness}, \texttt{loudness},
+\texttt{mode}, \texttt{speechiness}, \texttt{tempo}, \texttt{valence},
+\texttt{popularity}, \texttt{explicit} et \texttt{year}.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Classification des Genres}
+\label{sec:classif}
+% ══════════════════════════════════════════════════════════════════════════════
+
+\subsection{Sélection du Modèle}
+
+Un \textbf{Classificateur Random Forest} a été choisi pour la prédiction
+multi-classe des genres.  Les forêts aléatoires agrègent de nombreux arbres de
+décision décorrélés via l'agrégation bootstrap, offrant une robustesse contre
+le surapprentissage et la capacité de gérer des types de caractéristiques
+mixtes.  Les hyperparamètres suivants ont été définis :
+
+\begin{itemize}[leftmargin=*]
+  \item \texttt{n\_estimators} = 100 — nombre d'arbres dans l'ensemble.
+  \item \texttt{class\_weight} = \texttt{balanced} — ajuste automatiquement
+        les poids des échantillons de manière inversement proportionnelle aux
+        fréquences des classes, atténuant l'effet du déséquilibre des classes.
+  \item \texttt{random\_state} = 42 — graine fixe pour la reproductibilité.
+\end{itemize}
+
+\subsection{Protocole d'Évaluation}
+
+Le modèle a été évalué par \textbf{validation croisée stratifiée à 5 plis}
+sur le jeu d'entraînement.  La métrique principale est le \textbf{score F1
+micro-moyenné}, qui calcule la précision et le rappel globaux sur toutes les
+classes et est équivalent à l'exactitude lorsque chaque échantillon se voit
+attribuer exactement une étiquette.
+
+\subsection{Résultats}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}lc@{}}
+\toprule
+\textbf{Métrique} & \textbf{Valeur} \\
+\midrule
+F1 CV (micro) moyenne            & 0.4396 \\
+F1 CV (micro) écart-type         & $\pm\,0.0132$ \\
+\bottomrule
+\end{tabular}
+\caption{Résultats de la validation croisée pour la classification des genres.}
+\label{tab:classif}
+\end{table}
+
+Un F1 micro-moyenné d'environ \textbf{0.44} reflète la difficulté inhérente
+de la tâche : de nombreux genres partagent des profils audio similaires, et
+l'espace des caractéristiques (descripteurs audio purement numériques) ne
+capture pas nécessairement les différences stylistiques de haut niveau.  La
+pondération équilibrée des classes permet de s'assurer que les genres
+minoritaires ne sont pas systématiquement ignorés, mais la séparabilité
+globale reste limitée.
+
+\subsection{Prédiction sur le Jeu de Test}
+
+Après la validation croisée, le classificateur a été ré-entraîné sur
+l'ensemble du jeu d'entraînement et utilisé pour prédire les étiquettes de
+genre des 2\,834 morceaux non étiquetés du jeu de test.  Les prédictions ont
+été exportées dans \texttt{submission.csv} au format requis
+(\texttt{track\_id}, \texttt{genre}).
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Prédiction de Popularité}
+\label{sec:pop}
+% ══════════════════════════════════════════════════════════════════════════════
+
+\subsection{Définition de la Tâche}
+
+La colonne \texttt{popularity} (entier dans $[0,100]$) sert de cible de
+régression.  Cette tâche utilise le fichier dédié
+\texttt{spotify\_dataset\_subset.csv}, qui se concentre sur une sélection
+de morceaux.
+
+\subsection{Modèle}
+
+Un \textbf{Régresseur Random Forest} a été utilisé, reprenant la philosophie
+d'ensemble employée pour la classification.  Les régresseurs à base d'arbres
+de décision sont bien adaptés pour capturer les relations non linéaires entre
+les caractéristiques audio et la popularité sans nécessiter d'ingénierie de
+caractéristiques explicite.
+
+\subsection{Résultats}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}lc@{}}
+\toprule
+\textbf{Métrique} & \textbf{Valeur} \\
+\midrule
+Erreur Quadratique Moyenne (MSE) & 517.99 \\
+Coefficient de Détermination ($R^2$) & 0.2126 \\
+\bottomrule
+\end{tabular}
+\caption{Performance de la régression de popularité.}
+\label{tab:pop}
+\end{table}
+
+Un $R^2$ d'environ \textbf{0.21} indique que les caractéristiques audio
+seules expliquent approximativement 21\% de la variance de la popularité.
+Ceci est attendu car la popularité est fortement influencée par des facteurs
+externes — notoriété de l'artiste, marketing, placement dans les playlists,
+tendances temporelles — qui ne sont pas capturés par les descripteurs audio.
+Le MSE de 517.99 correspond à une erreur quadratique moyenne d'environ
+22.8 points de popularité sur l'échelle de 0 à 100.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Recommandation Basée sur le Contenu}
+\label{sec:reco}
+% ══════════════════════════════════════════════════════════════════════════════
+
+\subsection{Approche}
+
+Une stratégie de \textbf{filtrage basé sur le contenu} a été implémentée en
+utilisant la \textbf{similarité cosinus} sur les vecteurs de caractéristiques
+audio standardisés.  Étant donné un morceau requête, le système récupère les
+$k$ morceaux les plus similaires du pool
+\texttt{recommendation\_spotify.csv} en classant les similarités cosinus
+par paires.
+
+\subsection{Pipeline}
+
+\begin{enumerate}[leftmargin=*]
+  \item Charger et prétraiter le jeu de données de recommandation (même
+        pipeline que la Section~\ref{sec:preproc}).
+  \item Calculer la matrice de similarité cosinus entre toutes les paires de
+        morceaux.
+  \item Pour un morceau requête donné, trier les scores de similarité par
+        ordre décroissant et retourner les $k$ plus proches voisins (en
+        excluant le morceau requête lui-même).
+\end{enumerate}
+
+La similarité cosinus est un choix naturel dans ce contexte car elle mesure
+la proximité angulaire entre les vecteurs de caractéristiques, la rendant
+invariante aux changements d'échelle uniformes — une propriété importante
+lorsque les caractéristiques ont été standardisées mais peuvent encore
+présenter des plages dynamiques différentes selon le sous-ensemble.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Bonus : Prédiction Conforme}
+\label{sec:bonus}
+% ══════════════════════════════════════════════════════════════════════════════
+
+En tant qu'expérience supplémentaire, un cadre de \textbf{prédiction conforme}
+a été appliqué pour quantifier l'incertitude de prédiction sur la tâche de
+classification des genres.
+
+\subsection{Méthode}
+
+\begin{enumerate}[leftmargin=*]
+  \item Un classificateur \textbf{K plus proches voisins (KNN)} a été entraîné
+        sur le jeu d'entraînement après prétraitement standard.
+  \item Un \textbf{jeu de calibration} de 1\,500 échantillons a été réservé à
+        partir des données d'entraînement pour calculer les scores de
+        non-conformité.
+  \item Pour chaque instance de test, le prédicteur conforme produit un
+        \textbf{ensemble de prédiction} — un sous-ensemble d'étiquettes de
+        genre garanti de contenir la vraie étiquette avec une probabilité
+        d'au moins $1-\alpha$, où $\alpha$ est le niveau de signification
+        spécifié par l'utilisateur.
+\end{enumerate}
+
+\subsection{Résultats}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}cccc@{}}
+\toprule
+$\alpha$ & \textbf{Couverture (\%)} & \textbf{Taille moy.\ de l'ensemble} & \textbf{Ensembles vides (\%)} \\
+\midrule
+0.01 & 99.88 & 16.74 & 0.00 \\
+0.05 & 98.32 & 13.96 & 0.00 \\
+0.10 & 96.93 & 12.36 & 0.00 \\
+0.20 & 93.82 & 10.19 & 0.00 \\
+\bottomrule
+\end{tabular}
+\caption{Résultats de la prédiction conforme à différents niveaux de signification.}
+\label{tab:conformal}
+\end{table}
+
+Le prédicteur conforme atteint les garanties de couverture souhaitées à chaque
+niveau de signification.  Cependant, les tailles moyennes des ensembles de
+prédiction sont importantes (par ex.\ $\approx14$ genres à $\alpha=0.05$),
+reflétant le pouvoir discriminant limité des caractéristiques audio pour une
+séparation fine des genres.  Cela corrobore le score F1 modeste observé dans
+la Section~\ref{sec:classif}.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Discussion \& Conclusion}
+\label{sec:concl}
+% ══════════════════════════════════════════════════════════════════════════════
+
+Ce projet a démontré un pipeline d'apprentissage automatique de bout en bout
+pour l'analyse de morceaux Spotify, couvrant la classification, la régression
+et la recommandation.  Plusieurs observations méritent discussion :
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Limitations des caractéristiques.}  Les caractéristiques audio
+        purement numériques fournies par l'API Spotify capturent des propriétés
+        timbrales, rythmiques et harmoniques de bas niveau mais ne peuvent pas
+        encoder des attributs sémantiques ou culturels de plus haut niveau.
+        L'incorporation de métadonnées textuelles (paroles, biographie de
+        l'artiste) ou de représentations spectrales (par ex.\ spectrogrammes
+        Mel) pourrait améliorer significativement la classification des genres.
+  \item \textbf{Déséquilibre des classes.}  Malgré l'utilisation de poids
+        équilibrés par classe, les genres sous-représentés restent difficiles
+        à classifier.  Des techniques telles que le suréchantillonnage (SMOTE)
+        ou la classification hiérarchique (regroupement de genres apparentés)
+        pourraient apporter des améliorations.
+  \item \textbf{Modélisation de la popularité.}  Un $R^2$ de 0.21 confirme que
+        la popularité n'est que faiblement liée aux propriétés audio
+        intrinsèques.  Un ensemble de caractéristiques plus riche incluant des
+        métriques de réseaux sociaux, le calendrier de sortie et l'exposition
+        dans les playlists serait nécessaire pour une prévision pratique de la
+        popularité.
+  \item \textbf{Recommandation.}  Le système de recommandation basé sur la
+        similarité cosinus fournit une référence simple mais efficace.  Des
+        approches hybrides combinant filtrage basé sur le contenu et filtrage
+        collaboratif pourraient offrir des recommandations plus diversifiées
+        et précises.
+  \item \textbf{Quantification de l'incertitude.}  L'expérience de prédiction
+        conforme illustre que les garanties de couverture statistique se font
+        au prix d'ensembles de prédiction volumineux lorsque le classificateur
+        sous-jacent a une précision modérée.  Améliorer le classificateur de
+        base resserrerait directement les intervalles conformes.
+\end{itemize}
+
+Dans l'ensemble, la famille Random Forest s'est avérée être un choix fiable et
+interprétable pour la classification et la régression sur des caractéristiques
+audio tabulaires.  Les travaux futurs pourraient explorer les arbres à gradient
+boosté (XGBoost, LightGBM), les embeddings neuronaux ou la fusion multimodale
+pour améliorer davantage les performances.
+
+\end{document}
