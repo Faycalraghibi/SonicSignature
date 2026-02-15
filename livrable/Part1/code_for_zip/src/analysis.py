@@ -11,46 +11,35 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 
 def load_and_preprocess_subset(filepath):
-    """Loads and preprocesses the subset dataset."""
     df = pd.read_csv(filepath)
-    
-    # Parse genres from string to list
     df['genres'] = df['genres'].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) else [])
     
-    # Extract year from release_date if year column missing
     if 'year' not in df.columns and 'release_date' in df.columns:
         df['year'] = pd.to_datetime(df['release_date'], errors='coerce').dt.year
     
     return df
 
 def predict_popularity(df):
-    """Predicts song popularity using regression."""
     print("\n--- Popularity Prediction ---")
     
-    # Select features
     numeric_features = ['acousticness', 'danceability', 'energy', 'duration_ms', 
                         'instrumentalness', 'valence', 'tempo', 'liveness', 
                         'loudness', 'speechiness', 'year']
     
-    # Ensure all features exist
     existing_features = [col for col in numeric_features if col in df.columns]
     
-    # Drop rows with missing values in these features
     df_clean = df.dropna(subset=existing_features + ['popularity'])
     
     X = df_clean[existing_features]
     y = df_clean['popularity']
     
-    # Split data
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
     
-    # Scale features
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
     
     # Train model
-    # using Random Forest Regressor
     model = RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1)
     model.fit(X_train_scaled, y_train)
     
@@ -78,7 +67,6 @@ def analyze_genres(df, output_dir='outputs'):
     import os
     os.makedirs(output_dir, exist_ok=True)
 
-    # Flatten genres
     all_genres = [genre for genres in df['genres'] for genre in genres]
     genre_counts = pd.Series(all_genres).value_counts()
     
@@ -86,7 +74,6 @@ def analyze_genres(df, output_dir='outputs'):
     print("Top 10 Genres:")
     print(genre_counts.head(10))
     
-    # Plot Top 20 Genres
     plt.figure(figsize=(12, 6))
     sns.barplot(x=genre_counts.head(20).values, y=genre_counts.head(20).index, palette='viridis')
     plt.title('Top 20 Genres in Subset')

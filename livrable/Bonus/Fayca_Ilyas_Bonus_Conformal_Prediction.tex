@@ -1,0 +1,404 @@
+% ==============================================================================
+% Faycal Raghibi — Part 1 Report: Spotify Genre Classification & Analysis
+% IMT Nord Europe — IC2 S2.1 Machine Learning Project
+% ==============================================================================
+\documentclass[11pt,a4paper]{article}
+
+% ── Packages ──────────────────────────────────────────────────────────────────
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[english]{babel}
+\usepackage{geometry}
+\geometry{margin=2.5cm}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{parskip}
+
+\usepackage{xcolor}
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!70!black,
+  citecolor=blue!70!black,
+  urlcolor=blue!70!black
+}
+
+% ── Title ─────────────────────────────────────────────────────────────────────
+\title{%
+  \textbf{Spotify Music Analysis}\\[4pt]
+  \large Genre Classification, Popularity Prediction \& Recommendation\\[4pt]
+}
+\author{Faycal Raghibi, Guerouaoui Ilyas}
+\date{February 2026}
+
+\begin{document}
+\maketitle
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Introduction}
+% ══════════════════════════════════════════════════════════════════════════════
+
+Music streaming platforms such as Spotify host millions of tracks spanning a
+wide variety of genres.  Automatic genre classification, popularity prediction,
+and content-based recommendation are fundamental tasks that improve user
+experience and platform curation.  This report presents the methodology and
+results of a machine-learning pipeline built around a Spotify dataset that
+contains numerical audio descriptors extracted from the Spotify Web API.
+
+The project addresses three interconnected objectives:
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Genre classification} — assigning one of several genre labels
+        to each track based on its audio features.
+  \item \textbf{Popularity prediction} — estimating the continuous popularity
+        score of a track using regression.
+  \item \textbf{Content-based recommendation} — suggesting similar tracks by
+        measuring feature-space proximity.
+\end{enumerate}
+
+All experiments were implemented in Python using Scikit-Learn, NumPy, Pandas,
+Matplotlib and Seaborn.  The remainder of this report is organised as follows:
+Section~\ref{sec:data} describes the datasets; Section~\ref{sec:preproc}
+details the preprocessing pipeline; Sections~\ref{sec:classif}
+and~\ref{sec:pop} present the classification and regression tasks
+respectively; Section~\ref{sec:reco} introduces the recommendation approach;
+Section~\ref{sec:bonus} describes the bonus conformal-prediction experiment;
+and Section~\ref{sec:concl} concludes with a discussion.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Dataset Description \& Exploratory Analysis}
+\label{sec:data}
+% ══════════════════════════════════════════════════════════════════════════════
+
+\subsection{Available Datasets}
+
+Four CSV files were provided:
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{File} & \textbf{Rows} & \textbf{Columns} & \textbf{Purpose} \\
+\midrule
+\texttt{spotify\_dataset\_train.csv}  & 25\,493 & 17 & Training (incl.\ \texttt{genre}) \\
+\texttt{spotify\_dataset\_test.csv}   & 2\,834  & 16 & Test (no \texttt{genre} label) \\
+\texttt{spotify\_dataset\_subset.csv} & —       & —  & Popularity regression subset \\
+\texttt{recommendation\_spotify.csv}  & —       & —  & Recommendation system pool \\
+\bottomrule
+\end{tabular}
+\caption{Overview of the project datasets.}
+\label{tab:datasets}
+\end{table}
+
+\subsection{Feature Dictionary}
+
+Each track is described by the features listed in Table~\ref{tab:features}.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Feature} & \textbf{Type} & \textbf{Description} \\
+\midrule
+\texttt{track\_id}        & string  & Unique Spotify identifier \\
+\texttt{track\_name}      & string  & Name of the track \\
+\texttt{artists}          & string  & Performing artist(s) \\
+\texttt{release\_date}    & string  & Release date (year extracted) \\
+\texttt{acousticness}     & float   & Confidence measure of acoustic quality \\
+\texttt{danceability}     & float   & Suitability for dancing \\
+\texttt{duration\_ms}     & int     & Track duration in milliseconds \\
+\texttt{energy}           & float   & Perceptual intensity measure \\
+\texttt{instrumentalness} & float   & Likelihood that the track is instrumental \\
+\texttt{key}              & int     & Musical key (0–11, Pitch Class) \\
+\texttt{liveness}         & float   & Probability of live performance \\
+\texttt{loudness}         & float   & Overall loudness in dB \\
+\texttt{mode}             & int     & Modality (0 = minor, 1 = major) \\
+\texttt{speechiness}      & float   & Presence of spoken words \\
+\texttt{tempo}            & float   & Estimated BPM \\
+\texttt{valence}          & float   & Musical positiveness \\
+\texttt{popularity}       & int     & Popularity score (0–100) \\
+\texttt{explicit}         & int     & Explicit content flag \\
+\texttt{genre}            & string  & Genre label (train set only) \\
+\bottomrule
+\end{tabular}
+\caption{Feature dictionary for the Spotify datasets.}
+\label{tab:features}
+\end{table}
+
+\subsection{Exploratory Observations}
+
+An initial exploration of the training set revealed several characteristics
+that influenced the pipeline design:
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Class imbalance} — The genre distribution is highly uneven.
+        Some genres (e.g.\ \textit{pop}, \textit{rock}) dominate the dataset
+        while others are significantly under-represented.  This motivated the
+        use of class-balanced weights in the classifier.
+  \item \textbf{Missing values} — A small fraction of entries contain missing
+        numerical values, requiring imputation.
+  \item \textbf{Feature scales} — Features span very different ranges
+        (e.g.\ \texttt{duration\_ms} $\sim10^5$ vs.\ \texttt{acousticness}
+        $\in[0,1]$), necessitating standardisation.
+  \item \textbf{Dimensionality} — A PCA visualisation of the standardised
+        features showed substantial overlap among genres in the first two
+        principal components, hinting at a challenging classification task.
+\end{itemize}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Preprocessing Pipeline}
+\label{sec:preproc}
+% ══════════════════════════════════════════════════════════════════════════════
+
+The following preprocessing steps were applied consistently to both training
+and test data:
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Year extraction.}  The \texttt{release\_date} column was
+        parsed to extract a numerical \texttt{year} feature, providing a
+        compact temporal signal.
+  \item \textbf{Column selection.}  Non-predictive identifiers
+        (\texttt{track\_id}, \texttt{track\_name}, \texttt{artists}) and the
+        raw \texttt{release\_date} string were dropped.
+  \item \textbf{Missing-value imputation.}  Remaining missing values in
+        numerical columns were filled using \texttt{SimpleImputer} with a
+        \emph{mean} strategy.
+  \item \textbf{Feature standardisation.}  All numerical features were centred
+        and scaled to unit variance via \texttt{StandardScaler}, fitted on the
+        training set and applied to both splits.
+  \item \textbf{Categorical encoding.}  The binary categorical feature
+        \texttt{explicit} was retained as-is (already encoded as 0/1).
+        One-hot encoding was applied where needed for any additional
+        categorical signals.
+\end{enumerate}
+
+After preprocessing, the feature matrix contained the following columns used
+for modelling: \texttt{acousticness}, \texttt{danceability},
+\texttt{duration\_ms}, \texttt{energy}, \texttt{instrumentalness},
+\texttt{key}, \texttt{liveness}, \texttt{loudness}, \texttt{mode},
+\texttt{speechiness}, \texttt{tempo}, \texttt{valence}, \texttt{popularity},
+\texttt{explicit}, and \texttt{year}.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Genre Classification}
+\label{sec:classif}
+% ══════════════════════════════════════════════════════════════════════════════
+
+\subsection{Model Selection}
+
+A \textbf{Random Forest Classifier} was chosen for multi-class genre
+prediction.  Random forests aggregate many decorrelated decision trees via
+bootstrap aggregation, providing robustness against overfitting and the
+ability to handle mixed feature types.  The following hyperparameters were
+set:
+
+\begin{itemize}[leftmargin=*]
+  \item \texttt{n\_estimators} = 100 — number of trees in the ensemble.
+  \item \texttt{class\_weight} = \texttt{balanced} — automatically adjusts
+        sample weights inversely proportional to class frequencies, mitigating
+        the effect of class imbalance.
+  \item \texttt{random\_state} = 42 — fixed seed for reproducibility.
+\end{itemize}
+
+\subsection{Evaluation Protocol}
+
+The model was evaluated using \textbf{stratified 5-fold cross-validation} on
+the training set.  The primary metric is the \textbf{micro-averaged F1 score},
+which computes the global precision and recall across all classes and is
+equivalent to accuracy when all samples are assigned exactly one label.
+
+\subsection{Results}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}lc@{}}
+\toprule
+\textbf{Metric} & \textbf{Value} \\
+\midrule
+CV F1 (micro) mean            & 0.4396 \\
+CV F1 (micro) std             & $\pm\,0.0132$ \\
+\bottomrule
+\end{tabular}
+\caption{Cross-validation results for genre classification.}
+\label{tab:classif}
+\end{table}
+
+A micro-averaged F1 of approximately \textbf{0.44} reflects the inherent
+difficulty of the task: many genres share similar audio profiles, and the
+feature space (purely numerical audio descriptors) may not capture
+high-level stylistic differences.  The balanced class weighting helps ensure
+that minority genres are not systematically ignored, but the overall
+separability remains limited.
+
+\subsection{Prediction on the Test Set}
+
+After cross-validation, the classifier was retrained on the full training set
+and used to predict genre labels for the 2\,834 unlabelled test tracks.  The
+predictions were exported to \texttt{submission.csv} in the required format
+(\texttt{track\_id}, \texttt{genre}).
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Popularity Prediction}
+\label{sec:pop}
+% ══════════════════════════════════════════════════════════════════════════════
+
+\subsection{Task Definition}
+
+The \texttt{popularity} column (integer in $[0,100]$) serves as the
+regression target.  This task uses the dedicated
+\texttt{spotify\_dataset\_subset.csv} file, which focuses on a curated
+selection of tracks.
+
+\subsection{Model}
+
+A \textbf{Random Forest Regressor} was employed, mirroring the ensemble
+philosophy used for classification.  Decision-tree-based regressors are
+well-suited for capturing non-linear relationships between audio features and
+popularity without requiring explicit feature engineering.
+
+\subsection{Results}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}lc@{}}
+\toprule
+\textbf{Metric} & \textbf{Value} \\
+\midrule
+Mean Squared Error (MSE) & 517.99 \\
+Coefficient of Determination ($R^2$) & 0.2126 \\
+\bottomrule
+\end{tabular}
+\caption{Popularity regression performance.}
+\label{tab:pop}
+\end{table}
+
+An $R^2$ of approximately \textbf{0.21} indicates that the audio features
+alone explain roughly 21\% of the variance in popularity.  This is expected
+because popularity is heavily influenced by external factors—artist
+recognition, marketing, playlist placement, temporal trends—that are not
+captured by the audio descriptors.  The MSE of 517.99 corresponds to a root
+mean squared error of approximately 22.8 popularity points on the 0–100
+scale.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Content-Based Recommendation}
+\label{sec:reco}
+% ══════════════════════════════════════════════════════════════════════════════
+
+\subsection{Approach}
+
+A \textbf{content-based filtering} strategy was implemented using
+\textbf{cosine similarity} over the standardised audio-feature vectors.
+Given a query track, the system retrieves the $k$ most similar tracks from
+the \texttt{recommendation\_spotify.csv} pool by ranking pairwise cosine
+similarities.
+
+\subsection{Pipeline}
+
+\begin{enumerate}[leftmargin=*]
+  \item Load and preprocess the recommendation dataset (same pipeline as
+        Section~\ref{sec:preproc}).
+  \item Compute the cosine similarity matrix between all track pairs.
+  \item For a given query track, sort the similarity scores in descending
+        order and return the top-$k$ nearest neighbours (excluding the query
+        itself).
+\end{enumerate}
+
+Cosine similarity is a natural choice for this setting because it measures
+the angular proximity between feature vectors, making it invariant to
+uniform scaling—an important property when features have been standardised
+but may still exhibit different dynamic ranges depending on the subset.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Bonus: Conformal Prediction}
+\label{sec:bonus}
+% ══════════════════════════════════════════════════════════════════════════════
+
+As an additional experiment, a \textbf{conformal prediction} framework was
+applied to quantify prediction uncertainty on the genre classification task.
+
+\subsection{Method}
+
+\begin{enumerate}[leftmargin=*]
+  \item A \textbf{K-Nearest Neighbours (KNN)} classifier was trained on the
+        training set after standard preprocessing.
+  \item A \textbf{calibration set} of 1\,500 samples was held out from the
+        training data to compute non-conformity scores.
+  \item For each test instance the conformal predictor produces a
+        \textbf{prediction set} — a subset of genre labels guaranteed to
+        contain the true label with probability at least $1-\alpha$, where
+        $\alpha$ is the user-specified significance level.
+\end{enumerate}
+
+\subsection{Results}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}cccc@{}}
+\toprule
+$\alpha$ & \textbf{Coverage (\%)} & \textbf{Avg.\ Set Size} & \textbf{Empty Sets (\%)} \\
+\midrule
+0.01 & 99.88 & 16.74 & 0.00 \\
+0.05 & 98.32 & 13.96 & 0.00 \\
+0.10 & 96.93 & 12.36 & 0.00 \\
+0.20 & 93.82 & 10.19 & 0.00 \\
+\bottomrule
+\end{tabular}
+\caption{Conformal prediction results at various significance levels.}
+\label{tab:conformal}
+\end{table}
+
+The conformal predictor achieves the desired coverage guarantees at each
+significance level.  However, the average prediction-set sizes are large
+(e.g.\ $\approx14$ genres at $\alpha=0.05$), reflecting the limited
+discriminative power of the audio features for fine-grained genre
+separation.  This corroborates the modest F1 score observed in
+Section~\ref{sec:classif}.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Discussion \& Conclusion}
+\label{sec:concl}
+% ══════════════════════════════════════════════════════════════════════════════
+
+This project demonstrated an end-to-end machine-learning pipeline for
+Spotify track analysis, covering classification, regression, and
+recommendation.  Several observations merit discussion:
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Feature limitations.}  The purely numerical audio features
+        provided by the Spotify API capture low-level timbral, rhythmic, and
+        harmonic properties but cannot encode higher-level semantic or
+        cultural attributes.  Incorporating textual metadata (lyrics, artist
+        biography) or spectral representations (e.g.\ Mel-spectrograms)
+        could significantly improve genre classification.
+  \item \textbf{Class imbalance.}  Despite the use of balanced class weights,
+        under-represented genres remain difficult to classify.  Techniques
+        such as oversampling (SMOTE), or hierarchical classification (grouping
+        related genres) may yield improvements.
+  \item \textbf{Popularity modelling.}  An $R^2$ of 0.21 confirms that
+        popularity is only weakly related to intrinsic audio properties.
+        A richer feature set including social-network metrics, release
+        timing, and playlist exposure would be needed for practical
+        popularity forecasting.
+  \item \textbf{Recommendation.}  The cosine-similarity-based recommender
+        provides a simple yet effective baseline.  Hybrid approaches
+        combining content-based and collaborative filtering could offer more
+        diverse and accurate recommendations.
+  \item \textbf{Uncertainty quantification.}  The conformal prediction
+        experiment illustrates that statistical coverage guarantees come at
+        the cost of large prediction sets when the underlying classifier has
+        moderate accuracy.  Improving the base classifier would directly
+        tighten the conformal intervals.
+\end{itemize}
+
+Overall, the Random Forest family proved to be a reliable and interpretable
+choice for both classification and regression on tabular audio features.
+Future work could explore gradient-boosted trees (XGBoost, LightGBM), neural
+embeddings, or multi-modal fusion to push performance further.
+
+\end{document}

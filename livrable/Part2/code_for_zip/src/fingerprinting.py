@@ -5,93 +5,24 @@ import numpy as np
 import librosa
 from numba import jit
 
-@jit(nopython=True)
-def filter_by_distance(order, maxima, idx, idx2):
-    """Remove maxima that are closer than 10 pixels to a stronger peak."""
-    for k, i in enumerate(order):
-        for q in range(k, len(order)):
-            j = order[q]
-            d = (
-                (maxima[idx2[i], 0] - maxima[idx2[j], 0]) ** 2
-                + (maxima[idx2[i], 1] - maxima[idx2[j], 1]) ** 2
-            ) ** 0.5
-            if d > 0 and d < 10:
-                if idx[idx2[i]]:
-                    idx[idx2[j]] = False
-    return idx
+# Import professor-provided functions from utils_projet.py
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from utils_projet import get_maxima, search_song
 
 
-def filter_maxima(maxima, S):
-    """Keep only peaks above the 90th-percentile amplitude, then prune by distance."""
-    idx = np.zeros((len(maxima),), dtype=bool)
-    thr = np.quantile(S, 0.9)
-    for k in range(len(maxima)):
-        if S[maxima[k, 0], maxima[k, 1]] > thr:
-            idx[k] = True
-
-    idx2 = np.where(idx)[0]
-    sel_maxima = maxima[idx]
-    amps = np.zeros((len(sel_maxima),))
-    for i, _k in enumerate(sel_maxima):
-        amps[i] = S[sel_maxima[i, 0], sel_maxima[i, 1]]
-
-    order = np.argsort(amps)[::-1]
-    idx = filter_by_distance(order, maxima, idx, idx2)
-    return maxima[idx, :]
-
-
-def get_maxima(S):
-    """Find local maxima of spectrogram *S* as 3x3-grid winners."""
-    aux_S = np.zeros((S.shape[0] + 2, S.shape[1] + 2)) - np.inf
-    aux_S[1:-1, 1:-1] = S
-    S = aux_S
-    aux_ceros = (
-        (S >= np.roll(S, 1, 0))
-        & (S >= np.roll(S, -1, 0))
-        & (S >= np.roll(S, 1, 1))
-        & (S >= np.roll(S, -1, 1))
-        & (S >= np.roll(S, [-1, -1], [0, 1]))
-        & (S >= np.roll(S, [1, 1], [0, 1]))
-        & (S >= np.roll(S, [-1, 1], [0, 1]))
-        & (S >= np.roll(S, [1, -1], [0, 1]))
-    )
-    [y, x] = np.where(aux_ceros == True)  # noqa: E712
-    pos = np.zeros((len(x), 2))
-    pos[:, 0] = y - 1
-    pos[:, 1] = x - 1
-    pos = filter_maxima(pos.astype(int), S)
-    return pos
-
-
-def search_song(db_hashes, song_hashes):
-    """
-    Search for a song in the database by comparing hash dictionaries.
-
-    Returns the indices of the top-3 matches ranked by the largest
-    histogram bin of time-offset differences.
-    """
-    scores = []
-    for hashes in db_hashes:
-        tokens_present = [t for t in song_hashes if t in hashes]
-        offsets = [hashes[t] - song_hashes[t] for t in tokens_present]
-        count, _bins = np.histogram(offsets)
-        scores.append(np.max(count) if len(count) > 0 else 0)
-    return np.argsort(scores)[::-1][:3]
-
-
-#  Fingerprinting core                                                        #
 def compute_spectrogram(x, sr=3000):
     """
     Compute the energy spectrogram |STFT|^2 of signal *x*.
 
     Parameters
     ----------
-    x  : np.ndarray – mono audio signal
-    sr : int – sampling rate (default 3000 Hz)
+    x  : np.ndarray - mono audio signal
+    sr : int - sampling rate (default 3000 Hz)
 
     Returns
     -------
-    S  : np.ndarray – squared-magnitude spectrogram
+    S  : np.ndarray - squared-magnitude spectrogram
     """
     n_fft = 2048
     hop_length = 512
@@ -156,7 +87,6 @@ def get_maxima_in_tz(S, maxima, anchor):
 def get_hashes(anchor, maxima_in_tz):
     """
     Build hashes for every (anchor, target) pair.
-
     Hash = f_anchor * 10^6  +  f_target * 10^3  +  (t_target - t_anchor)
 
     Returns
@@ -174,14 +104,14 @@ def get_hashes(anchor, maxima_in_tz):
 
 def process_signal(x, sr=3000):
     """
-    Full fingerprinting pipeline: signal → spectrogram → maxima → hashes.
+    Full fingerprinting pipeline: signal -> spectrogram -> maxima -> hashes.
 
     Returns
     -------
     dict : {hash_value: t_anchor, ...}
     """
     S = compute_spectrogram(x, sr=sr)
-    maxima = get_maxima(S)
+    maxima = get_maxima(S)  # from utils_projet
     hashes_dict = {}
     for i in range(len(maxima)):
         anchor = maxima[i]
@@ -191,17 +121,14 @@ def process_signal(x, sr=3000):
     return hashes_dict
 
 
-#  Database management                                                        #
-
 class AudioDatabase:
     """Pickle-backed fingerprint store with creation, loading and search."""
 
     def __init__(self, db_path="dataset/dataset.pickle"):
         self.db_path = db_path
-        self.database = []   # list of hash dicts
+        self.database = []
         self.song_names = []
 
-    # build
     def create_database(self, songs_dir="songs"):
         """Walk *songs_dir*, fingerprint every audio file, persist to pickle."""
         print(f"Creating database from {songs_dir}...")
@@ -224,9 +151,8 @@ class AudioDatabase:
             pickle.dump({"hashes": self.database, "names": self.song_names}, fh)
         print(f"Database saved to {self.db_path} ({len(self.database)} songs).")
 
-    # load
     def load_database(self):
-        """Load an existing pickle database.  Returns True on success."""
+        """Load an existing pickle database. Returns True on success."""
         if not os.path.exists(self.db_path):
             print("Database file not found.")
             return False
@@ -237,11 +163,8 @@ class AudioDatabase:
         print(f"Loaded database with {len(self.database)} songs.")
         return True
 
-    # search
     def search_excerpt(self, excerpt_path):
-        """
-        Load an audio excerpt, fingerprint it, and return the top-3 matches.
-        """
+        """Load an audio excerpt, fingerprint it, and return the top-3 matches."""
         if not self.database:
             if not self.load_database():
                 return []
@@ -260,36 +183,3 @@ class AudioDatabase:
         except Exception as exc:
             print(f"Error searching: {exc}")
             return []
-
-
-# CLI entry-point
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(
-        description="Audio fingerprinting: build a database and search excerpts."
-    )
-    sub = parser.add_subparsers(dest="command")
-
-    # build
-    build_p = sub.add_parser("build", help="Build fingerprint database from a folder of songs.")
-    build_p.add_argument("--songs-dir", default="songs", help="Directory containing audio files.")
-    build_p.add_argument("--db-path", default="dataset/dataset.pickle", help="Output pickle path.")
-
-    # search
-    search_p = sub.add_parser("search", help="Search an audio excerpt against the database.")
-    search_p.add_argument("excerpt", help="Path to the audio excerpt to identify.")
-    search_p.add_argument("--db-path", default="dataset/dataset.pickle", help="Pickle database path.")
-
-    args = parser.parse_args()
-
-    if args.command == "build":
-        db = AudioDatabase(db_path=args.db_path)
-        db.create_database(songs_dir=args.songs_dir)
-
-    elif args.command == "search":
-        db = AudioDatabase(db_path=args.db_path)
-        db.search_excerpt(args.excerpt)
-
-    else:
-        parser.print_help()
